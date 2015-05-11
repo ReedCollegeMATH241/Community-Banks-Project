@@ -1,0 +1,146 @@
+---
+title: 'Small Business and Community Banking: A Spatial Investigation'
+author: "Eleanor Parmentier"
+date: "May 10, 2015"
+output: pdf_document
+---
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+suppressPackageStartupMessages(library(foreign))
+suppressPackageStartupMessages(library(dplyr))
+suppressPackageStartupMessages(library(rgdal))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(rvest))
+suppressPackageStartupMessages(library(tidyr))
+suppressPackageStartupMessages(library(maps))
+suppressPackageStartupMessages(library(rgdal))
+suppressPackageStartupMessages(library(ggmap))
+suppressPackageStartupMessages(library(lubridate))
+suppressPackageStartupMessages(library(magrittr))
+suppressPackageStartupMessages(library(maptools))
+suppressPackageStartupMessages(library(ggthemes))
+suppressPackageStartupMessages(library(stringr))
+
+##PLEASE SET WORKING DIRECTORY TO PROJECT FOLDER SO ALL DATA FILES ARE AVAILABLE
+##you may have to setwd in the Rmd code for this to work?
+
+cbsb <- read.dta("cb_cu_sb20072011_controls2005 march 5.dta") %>%
+  rename(fipscnty=fips)
+US <- readOGR(dsn=".", 
+              layer="gz_2010_us_050_00_500k", 
+              verbose=FALSE) 
+
+US@data <- US@data %>% mutate(county=paste(STATE,COUNTY,sep=""))
+
+US.map <- fortify(US, region="county") %>% tbl_df() %>%
+  rename(fipscnty=id) %>%
+  mutate(fipsstate=str_sub(fipscnty, 1, 2))
+US.map$fipsstate <- as.numeric(US.map$fipsstate)
+US.map$fipscnty <- as.numeric(US.map$fipscnty)
+US.map %<>%
+  filter(fipsstate!=2) %>%
+  filter(fipsstate!=15) %>%
+  filter(fipsstate!=72)
+cbsb_map <-
+  US.map %>%
+  left_join(cbsb, by="fipscnty")
+
+```
+<p>This project is an extension of my thesis work, which concerns itself with the regional role of community banks in supporting small businesses. It is wrapped up in a broader project that seeks extant and viable organizational alternatives to high finance and money center banking. The current financial and banking systems benefit a very small number of people, as banking has become increasingly involved in "market activities", such as derivatives trading and securitization. This orientation towards short term profit and shareholder value has delinked the banking sector from one engine of domestic economic growth: small business. 
+<p>Community banks occupy a unique and important niche within the banking sector. These banks are defined as small banks that focus their business on traditional deposit taking and lending within their communities. The sociological literature explains this traditional banking activity using networks and embeddedness. The general idea is that community banks, because they are rooted in local communities, are able to develop relationships with their borrowers. These relationships confer trust, soft information, and the ability to solve problems jointly.
+<p>There is a great deal of uncertainty when it comes to small business lending. These small firms are subject to moral hazard and visibility problems. They are not often publicly owned, so financial information is not easily accessible. Furthermore, their balance sheets tend not to reflect their viability. For these reasons, and more, small business owners find it difficult to obtain credit.
+<p>The relations these business owners can develop with their bankers become important conduits of information that is not readily visible. This kind of information, such as local market knowledge and information about family finances, is not taken into account by the rating models that big banks rely upon. Futher, when the business falls upon hard times, the relationship allows banker and owner to work together to solve problems, customized payment plans can be created, or interest payments deferred. The bank and the business have incentive to maintain a working economic relationship. 
+<p>In sum, I have theoretical reason to believe that community banks foster the development of regional small business sectors, and my thesis data analysis has been an investigation of this relationship. I have found significant and positive effects of community banks on the share of small business in county economies, even when controlling for a host of demographic and economic variables and problems of endogeneity. Yet I am concerned about an issue of spatial autocorrelation, or the notion that observations taken from geographically near place are related, or correlated. They are not independent observations, which is one of the key assumptions we make when developing linear models. While I call it an "issue", this does not necessarily mean that because my data are spatially correlated that my conclusions are invalid. Instead, there might be some substantive information within a spatial analysis, it might tell me where in the US community banks have the largest effects on small business, from here I can begin to think about why. 
+<p>My small business data come from the Statistics of US Businesses (SUSB) program, part of the US Census Bureau. The [specific data set](https://www.sba.gov/advocacy/firm-size-data), termed “U.S. static data” by the Small Business Administration, provides employer data containing number of firms, number of establishments, employment and annual payroll for employment size of firm categories. For this class project, I only use one measure of small business: the county-level proportion of individuals employed in firms with less than 500 employees. While I have this variable for years 2007-2011, in this analysis I only look at 2011. 
+<p>The independent variable of interest, relative presence of community banks by county. The variables come from Federal Financial Institutions Examination Council (FFIEC) Summary of Deposits database, which annually surveys FDIC-insured banking institutions in the United States. Data is available from 1994-2014, although I am only concerned with years through 2011. I ultimately chose to use an indexed measure of community banks, as I suspect it is the best (most accurate) measure. </p>
+<p> My map data comes from the US Census Bureau, [Cartographic Boundary Shapefiles for US counties](https://www.census.gov/geo/maps-data/data/cbf/cbf_counties.html). I use the 500k resolution level, as it is adequate for my purposes. </p>
+
+<p> To begin my spatial investigation, I analyzed the geographic distribution of my two variables of interest, community banks and small business. 
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+#Generating geographic plots of the community bank and small business variables, to look at their spatial distribution
+ggplot(cbsb_map, aes(x=long, y=lat, group=group, fill=indexbkorglocalbydeps2005)) +
+  geom_polygon() +
+  coord_map() +
+  scale_fill_continuous(low="white", high="red", name="Community Banks")  +
+  ggtitle("Relative Presence of Community Banks in US Counties") +
+  theme_tufte()
+
+ggplot(cbsb_map, aes(x=long, y=lat, group=group, fill=premploymentlt500y2011)) +
+  geom_polygon() +
+  coord_map() +
+  scale_fill_continuous(low="white", high="blue", name="Small Business") +
+  ggtitle("Relative Share of Small Businesses in US Counties") +
+  theme_tufte()
+```
+<p>I then created a binary measure of both community banks and small business, which codes low and high values for each county. Low values are those that fall below the median, high values above. I then remapped the individual variables, in order to get a clearer sense of their distribution.</p>
+
+
+```{r, warning=FALSE, echo=FALSE, message=FALSE}
+cbsb$indexbkorglocalbydeps2005 <-as.numeric(cbsb$indexbkorglocalbydeps2005)
+
+#Generating low-high category variables for SB and CB
+cbsb_p <- cbsb %>%
+  mutate(sb_lh=ifelse(premploymentlt500y2011< median(premploymentlt500y2011, na.rm=TRUE), "L", "H")) %>%
+  mutate(cb_lh=ifelse(indexbkorglocalbydeps2005<median(indexbkorglocalbydeps2005, na.rm=TRUE), "L", "H")) %>%
+  filter(!is.na(sb_lh)) %>%
+  filter(!is.na(cb_lh)) %>%
+  mutate(sb_cb=paste(sb_lh, cb_lh, sep=""))
+
+
+cbsb_p_map <- US.map %>%
+  left_join(cbsb_p, by="fipscnty")
+  
+
+ggplot(cbsb_p_map, aes(x=long, y=lat, group=group, fill=sb_lh)) +
+  geom_polygon() +
+  coord_map()
+ggsave("sbmap.pdf")
+
+ggplot(cbsb_p_map, aes(x=long, y=lat, group=group, fill=cb_lh)) +
+  geom_polygon() +
+  coord_map()
+ggsave("cbmap.pdf")
+
+```
+<p>Community banks show clear clustering in the center of the country, in the midwest. This makes sense to me, as they are often the source of finance for family farms. The breadbasket would have high demand for these banks. We see fewer of these banks on each coast, where the more cosmopolitan big banks are more likely to locate themselves.</p>
+
+<p> Small businesses have a larger geographic spread, with a strong hold in the Western US and an important role in various counties across the east. The pattern seems to be less apparent here, although I would like to know if these counties with a lot of small businesses tend to be more rural or not. </p>
+
+<p> In order to look at both community banking and small business, I (with Albert's help) devised a new categorical variable. This variable combines the low-high small business and community bank variables together, and has four possible values: HH, LH, HL, and LL. The first (HH) corresponds to a high community bank presence and a high small business share. LH represents low small business, high community bank. HL means high small business, low community bank. LL indicates low levels of both measures. </p>
+
+```{r, message=FALSE, error=FALSE, echo=FALSE}
+
+ggplot(cbsb_p_map, aes(x=long, y=lat, group=group, fill=sb_cb)) +
+  geom_polygon() +
+  coord_map()
+ggsave("bothmap.pdf")
+
+mosaicplot(table(CB=cbsb_p$cb_lh, SB=cbsb_p$sb_lh), main="Low-High Small Business and Community Banks", xlab="Community Banks", ylab="Small Business", color=TRUE)
+```
+<p> This map is a little more difficult to read. The colors that confirm my hypothesis are red/orange and purple. As one can see, there is a distinct clustering of HH in the middle of the country. This alone leads me to believe that my models exhibit spatial autocorrelation, but I also look at a map of the residuals. </p>
+```{r, message=FALSE, error=FALSE, echo=TRUE}
+
+naive.model <- lm(premploymentlt500y2011 ~ indexbkorglocalbybranches2005, cbsb_p)
+summary(naive.model)
+cbsb_p$residnaive <- resid(naive.model)
+```
+
+```{r, message=FALSE, error=FALSE, echo=FALSE}
+cbsb_p_map <- US.map %>%
+  left_join(cbsb_p, by="fipscnty")
+
+
+ggplot(cbsb_p_map, aes(x=long, y=lat, group=group, fill=residnaive)) +
+  geom_polygon() +
+  coord_map() +
+  scale_fill_gradient2(name="", low="white", high="red")
+ggsave("residmap.pdf")
+
+```
+<p>The residuals of a very simple linear model (just regressing community banks against small business) also do not appear to be randomly distributed in space. Counties where community banks do not explain much of the variation in small business (where the residuals are high) seem more likely to be clumped together in little pockets. There is certainly some geographic bias at play in my data. </p>
+
+<p> The next logical question is what do we make of this bias? There must be something unique about certain counties and their neighbors, and the midwest as a large region, that makes community banks important players. If the role of community banks changes across the country, then policies ought to reflect the differential roles. As my advisor and I continue this project, we want to look at urban and rural regions seperately, as well as cities on their own. We suspect that community banks are especially important players in rural farming communities and small towns in general. </p>
+
+<p> It's important to note, again, that simply because there is an issue of spatial autocorrelation in my data, that the conclusions are not entirely invalid. Instead, we must investigate what geographic conditions are affecting my hypothesis, why and where certain counties rely more heavily on community banks to support their small business sectors. </p>
+
